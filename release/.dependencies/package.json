@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@pixi/webworker": "^7.4.3",
+    "pixi-filters": "^6.1.5"
+  }
+}
