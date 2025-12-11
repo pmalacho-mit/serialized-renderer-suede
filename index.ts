@@ -1,3 +1,6 @@
+import type * as PIXI from "@pixi/webworker";
+import type { GlowFilter } from "pixi-filters";
+import type { Easing } from "./easing";
 import {
   createScope,
   prepare,
@@ -5,10 +8,7 @@ import {
   type Scope,
   load,
   getHit,
-  animatePageFlip,
-  inversePageFlip,
 } from "./runtime";
-import type * as PIXI from "@pixi/webworker";
 import type {
   PickElements,
   Branded,
@@ -17,16 +17,7 @@ import type {
   ExpandRecursively,
 } from "./utils";
 
-export {
-  createScope,
-  prepare,
-  start,
-  Scope,
-  load,
-  getHit,
-  animatePageFlip,
-  inversePageFlip,
-};
+export { createScope, prepare, start, Scope, load, getHit };
 
 export type AnchoredPosition = {
   /**
@@ -100,6 +91,10 @@ export type Proportional = { ratio: number };
 
 export type Fill = { color: PIXI.ColorSource };
 
+export type Eased = { easing: Easing };
+
+export type Rotated = { rotation: number };
+
 export type Inclusive = ExpandRecursively<{
   include: RequireAtLeastOne<Record<"tags" | "identifiers", string[]>>;
 }>;
@@ -111,7 +106,14 @@ export type Graphic = Expand<
 export type Sprite = Expand<
   Required<Position & Proportional> &
     Partial<
-      Size & Childed & Tagged & ZIndexed & Masked & Clickable & Transparent
+      Size &
+        Childed &
+        Tagged &
+        ZIndexed &
+        Masked &
+        Clickable &
+        Transparent &
+        Rotated
     >
 >;
 
@@ -144,14 +146,15 @@ export type Transition<
     }
   > &
     Partial<
-      Tagged & {
-        repeat?: boolean;
-        totalDuration?: number;
-      }
+      Tagged &
+        Eased & {
+          repeat?: boolean;
+          totalDuration?: number;
+        }
     >
 >;
 
-type TransitionableProperty = {
+export type TransitionableProperty = {
   [k in keyof Transitionables]: keyof Transitionables[k];
 }[keyof Transitionables];
 
@@ -162,18 +165,25 @@ export type GenericTransition = Omit<
   property: TransitionableProperty;
 };
 
+export type PropertiesByRendererInput = {
+  sprites: Sprite;
+  filters: Filter;
+  graphics: Graphic;
+  transitions: GenericTransition;
+};
+
 export type RendererInput = {
-  sprites: Record<string, Sprite>;
-  filters: Record<string, Filter>;
-  graphics: Record<string, Graphic>;
-  transitions: Record<string, GenericTransition>;
+  [k in keyof PropertiesByRendererInput]: Record<
+    string,
+    PropertiesByRendererInput[k]
+  >;
 };
 
 export type AliasLookup = { Alias: Record<string, { assetPath: string }> };
 
 export type PixiByRendererInput = {
   sprites: PIXI.Sprite;
-  filters: PIXI.Filter;
+  filters: PIXI.Filter | GlowFilter;
   graphics: PIXI.Graphics;
 };
 
