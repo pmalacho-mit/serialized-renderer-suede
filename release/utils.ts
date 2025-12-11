@@ -64,3 +64,13 @@ export type _RequireAtLeastOne<T> = {
   [K in keyof T]-?: Required<Pick<T, K>> &
     Partial<Pick<T, Exclude<keyof T, K>>>;
 }[keyof T];
+
+export type Pluralize<T extends string> = `${T}s`;
+
+export const pluralize = <T extends string>(singular: T) =>
+  (singular.endsWith("s") ? singular : `${singular}s`) as Pluralize<T>;
+
+export const singularize = <T extends string>(plural: T) =>
+  (plural.endsWith("s")
+    ? plural.slice(0, -1)
+    : plural) as T extends `${infer S}s` ? S : never;
