@@ -6,7 +6,7 @@
 [subrepo]
 	remote = https://github.com/pmalacho-mit/serialized-renderer-suede
 	branch = release
-	commit = f96155d1de874f20383c43f8db84886131057698
-	parent = ce73a919e48a967702668c643d8259632e731f26
+	commit = 726db364b8ba7d342f3459a274517333d758ea2a
+	parent = 0089a0f0e111a6e48147fbeb22c8928d6d9430c0
 	method = merge
 	cmdver = 0.4.9
