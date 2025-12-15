@@ -5,11 +5,11 @@ import type {
   PropertiesByRendererInput,
   RendererInput,
 } from "..";
-import type { Scope } from "../runtime";
+import type { Scope } from "../scope";
 import { setOrAppend } from "../utils";
 import { draw as drawGraphic } from "./graphic";
 import { set as setSprite } from "./sprite";
-import { Lookup, LookupItem } from "../lookup";
+import type { Lookup, LookupItem } from "../lookup";
 
 /**
  * Visuals are things that can be rendered on screen (sprites and graphics),
@@ -24,11 +24,11 @@ type Visuals = "sprites" | "graphics";
  * graphics can be also.
  */
 export type ParentVisual = PixiByRendererInput["sprites"];
-export type Visual = PixiByRendererInput["sprites" | "graphics"];
+export type Visual = PixiByRendererInput[Visuals];
 
 type Size = { width: number; height: number };
 type Center = { x: number; y: number };
-export type Parent = Center & Size;
+export type Parent = Center & Size & { rotation?: number };
 
 export const point: Size = { width: 0, height: 0 };
 
@@ -42,23 +42,41 @@ export const isSprite = (
   query: Visual
 ): query is PixiByRendererInput["sprites"] => query.isSprite;
 
-export const resolvePosition = (
+const calculateLocalOffset = (
   { value, anchors }: AnchoredPosition,
   dimension: "x" | "y",
-  self: Size,
+  self: number,
   parent: Parent
 ) => {
   const unit = dimension === "x" ? "width" : "height";
   return (
-    parent[dimension] -
-    parent[unit] / 2 +
-    anchors.parent * parent[unit] +
-    (0.5 - anchors.self) * self[unit] +
-    parent[unit] * value
+    parent[unit] * (-0.5 + anchors.parent + value) + self * (0.5 - anchors.self)
   );
 };
 
-const childrenByIdentifier = new Map<string, Visual[]>();
+export const apply2DTransform = (
+  target: Pick<Visual, "x" | "y">,
+  x: AnchoredPosition,
+  y: AnchoredPosition,
+  width: number,
+  height: number,
+  parent: Parent,
+  useParentRotation: boolean
+) => {
+  const offsetX = calculateLocalOffset(x, "x", width, parent);
+  const offsetY = calculateLocalOffset(y, "y", height, parent);
+  if (useParentRotation && parent.rotation) {
+    const cos = Math.cos(parent.rotation);
+    const sin = Math.sin(parent.rotation);
+    const rotatedX = offsetX * cos - offsetY * sin;
+    const rotatedY = offsetX * sin + offsetY * cos;
+    target.x = parent.x + rotatedX;
+    target.y = parent.y + rotatedY;
+  } else {
+    target.x = parent.x + offsetX;
+    target.y = parent.y + offsetY;
+  }
+};
 
 export type Factory<Key extends Visuals> = (
   identifier: string,
@@ -76,10 +94,11 @@ type Configs<Key extends Visuals> = Record<
   PropertiesByRendererInput[Key]
 >;
 
-export const create = <Key extends Visuals>(
+export const create = <Key extends Exclude<Visuals, "containers">>(
   configs: Configs<Key>,
   { byIdentifier, byTag, configBy, identifierBy }: Lookup<Key>,
-  make: Factory<Key>
+  make: Factory<Key>,
+  childrenByIdentifier: Map<string, Visual[]>
 ) => {
   for (const identifier in configs) {
     const config = configs[identifier];
@@ -96,16 +115,32 @@ export const create = <Key extends Visuals>(
   }
 };
 
-const formRelationships = ({
-  childrenByParent,
-  parentByChild,
-  lookup: { sprites: Sprite },
-  alias,
-}: Scope) => {
+const findSprite = (
+  identifier: string,
+  sprites: Lookup<"sprites">,
+  aliases: Scope["aliases"]
+) => {
+  const fromIdentifier = sprites.byIdentifier.get(identifier);
+  if (fromIdentifier) return fromIdentifier;
+  if (aliases) {
+    const fromAlias = sprites.byIdentifier.get(aliases[identifier]);
+    if (fromAlias) return fromAlias;
+  }
+  throw new Error(`Sprite with identifier "${identifier}" not found.`);
+};
+
+const formRelationships = (
+  {
+    childrenByParent,
+    parentByChild,
+    lookup: { sprites },
+    aliases: alias,
+  }: Scope,
+  childrenByIdentifier: Map<string, Visual[]>
+) => {
   for (const [identifier, children] of childrenByIdentifier) {
-    const parent = (Sprite.byIdentifier.get(identifier) ??
-      Sprite.byIdentifier.get(alias[identifier].assetPath))!; // since only sprites can be parents (for now)
-    childrenByParent.set(parent, children);
+    const parent = findSprite(identifier, sprites, alias);
+    setOrAppend(childrenByParent, parent, ...children);
     for (const child of children) parentByChild.set(child, parent);
   }
 };
@@ -127,29 +162,36 @@ const initialize = <Key extends Visuals>(
   }
 };
 
-const setupMasks = (sprites: RendererInput["sprites"], scope: Scope) => {
-  for (const [spriteId, spriteConfig] of Object.entries(sprites)) {
+const setupMasks = <K extends Visuals>(
+  key: K,
+  record: RendererInput[K],
+  scope: { lookup: Record<K, Lookup<K>> }
+) => {
+  for (const [identifier, spriteConfig] of Object.entries(record)) {
     const { mask } = spriteConfig;
     if (!mask) continue;
-    const sprite = scope.lookup.sprites.byIdentifier.get(spriteId);
-    const graphic = scope.lookup.graphics.byIdentifier.get(mask);
-    if (!sprite || !graphic) continue;
-    sprite.mask = graphic;
+    const element = scope.lookup[key].byIdentifier.get(identifier);
+    const graphic = scope.lookup[key].byIdentifier.get(mask);
+    if (!element || !graphic) continue;
+    element.mask = graphic;
   }
 };
 
 export const configure = (
-  { graphics, sprites }: Pick<RendererInput, Visuals>,
+  { graphics, sprites }: Partial<Pick<RendererInput, Visuals>>,
   scope: Scope,
   makeSprite: Factory<"sprites">,
   makeGraphic: Factory<"graphics">
 ) => {
   const { lookup } = scope;
-  childrenByIdentifier.clear();
-  create(graphics, lookup.graphics, makeGraphic);
-  create(sprites, lookup.sprites, makeSprite);
-  formRelationships(scope);
-  setupMasks(sprites, scope);
+  const childrenByIdentifier = new Map<string, Visual[]>();
+  if (graphics)
+    create(graphics, lookup.graphics, makeGraphic, childrenByIdentifier);
+  if (sprites)
+    create(sprites, lookup.sprites, makeSprite, childrenByIdentifier);
+  formRelationships(scope, childrenByIdentifier);
+  if (sprites) setupMasks("sprites", sprites, scope);
+  if (graphics) setupMasks("graphics", graphics, scope);
   initialize(lookup.sprites, scope, setSprite);
   initialize(lookup.graphics, scope, drawGraphic);
 };

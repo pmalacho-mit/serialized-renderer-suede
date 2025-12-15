@@ -2,6 +2,7 @@ import type {
   PixiByRendererInput,
   PropertiesByRendererInput,
   RendererInput,
+  Scope,
 } from "./";
 
 export type LookupItem<Key extends keyof RendererInput> =
@@ -23,6 +24,10 @@ export type Lookups = {
   [K in keyof RendererInput]: Lookup<K>;
 };
 
+const clearAll = (_lookup: Lookup<keyof RendererInput>) => {
+  for (const key in _lookup) _lookup[key as keyof typeof _lookup].clear();
+};
+
 const lookup = {
   pixi: (key: keyof PixiByRendererInput): Lookup<typeof key> => ({
     byIdentifier: new Map(),
@@ -41,6 +46,7 @@ const lookup = {
       case "sprites":
       case "graphics":
       case "filters":
+      case "containers":
         return lookup.pixi(key) as unknown as Lookup<K>;
       case "transitions":
         return lookup.nonPixi(key) as unknown as Lookup<K>;
@@ -50,13 +56,20 @@ const lookup = {
     sprites: lookup.create("sprites"),
     graphics: lookup.create("graphics"),
     filters: lookup.create("filters"),
+    containers: lookup.create("containers"),
     transitions: lookup.create("transitions"),
   }),
   prune: <K extends keyof PixiByRendererInput>(
     lookup: Lookup<K>,
-    current: string[]
+    current: Partial<RendererInput>[
+      | "sprites"
+      | "graphics"
+      | "containers"
+      | "filters"],
+    tagBehavior: "keep tags" | "clear tags" = "keep tags"
   ) => {
-    const set = new Set(current);
+    if (!current) return clearAll(lookup);
+    const set = new Set(Object.keys(current));
     for (const [identifier, item] of lookup.byIdentifier) {
       if (set.has(identifier)) continue;
       lookup.byIdentifier.delete(identifier);
@@ -64,8 +77,9 @@ const lookup = {
       lookup.identifierBy.delete(item as any);
       item.destroy();
     }
+    if (tagBehavior === "clear tags") lookup.byTag.clear();
   },
-  clear: <K extends keyof RendererInput>(lookup: Lookup<K>) => {
+  clean: <K extends keyof RendererInput>(lookup: Lookup<K>) => {
     lookup.byIdentifier.clear();
     lookup.byTag.clear();
     if ("configBy" in lookup) {

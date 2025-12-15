@@ -1,14 +1,6 @@
 import type * as PIXI from "@pixi/webworker";
 import type { GlowFilter } from "pixi-filters";
 import type { Easing } from "./easing";
-import {
-  createScope,
-  prepare,
-  start,
-  type Scope,
-  load,
-  getHit,
-} from "./runtime";
 import type {
   PickElements,
   Branded,
@@ -17,7 +9,9 @@ import type {
   ExpandRecursively,
 } from "./utils";
 
-export { createScope, prepare, start, Scope, load, getHit };
+export { replace as prepare, start, lifecyle } from "./runtime";
+export { getHit } from "./query";
+export { createScope, type Scope } from "./scope";
 
 export type AnchoredPosition = {
   /**
@@ -62,12 +56,25 @@ export type Position<D extends Dimensions = 2> = Record<
 
 export type Size<D extends Dimensions = 2> = Record<SizeUnits<D>, number>;
 
+export type RelativeLength = { width: number } | { height: number };
+
+export type RelativeRadius = { radius: RelativeLength };
+
+export type LinePoint = Record<Axes<2>, { value: number; parent: number }>;
+
 export type Shape =
-  | Branded<"rectangle", Size & Position>
-  | Branded<"circle", { radius: number } & Position>
-  | Branded<"rounded rectangle", Size & Position & { radius: number }>
-  | Branded<"line", { thickness: number; points: Position[] }>
-  | Branded<"ellipse", Size & Position>;
+  | Branded<"rectangle", Size & Position & Fill>
+  | Branded<"circle", RelativeRadius & Position & Fill>
+  | Branded<"rounded rectangle", RelativeRadius & Size & Position & Fill>
+  | Branded<
+      "line",
+      {
+        thickness: RelativeLength;
+        points: LinePoint[];
+        cap?: "butt" | "round" | "square";
+      } & Fill
+    >
+  | Branded<"ellipse", Size & Position & Fill>;
 
 export type Childed = {
   /**
@@ -75,6 +82,10 @@ export type Childed = {
    * In this way, this can (only) be used to position and/or size a sprite or graphic relative to another.
    */
   parent: string;
+  /**
+   * If true, the parent's rotation will be leveraged when calculating this visual's position.
+   */
+  useParentRotation: boolean;
 };
 
 export type Tagged = { tag: string };
@@ -95,16 +106,18 @@ export type Eased = { easing: Easing };
 
 export type Rotated = { rotation: number };
 
+export type Contained = { container: string };
+
+export type Flipped = { flipped: true };
+
+export type Repeated = { repeat: true };
+
 export type Inclusive = ExpandRecursively<{
   include: RequireAtLeastOne<Record<"tags" | "identifiers", string[]>>;
 }>;
 
-export type Graphic = Expand<
-  Required<Shape & Fill> & Partial<Childed & Tagged & ZIndexed>
->;
-
 export type Sprite = Expand<
-  Required<Position & Proportional> &
+  Required<Position> &
     Partial<
       Size &
         Childed &
@@ -113,21 +126,54 @@ export type Sprite = Expand<
         Masked &
         Clickable &
         Transparent &
-        Rotated
+        Rotated &
+        Contained
     >
+>;
+
+type NoRotatedLines =
+  | { kind: "line"; rotation: never }
+  | { kind: Exclude<Shape["kind"], "line">; rotation: number };
+
+export type Graphic = Expand<
+  Shape &
+    Required<Fill> &
+    Partial<
+      Childed &
+        Tagged &
+        ZIndexed &
+        Masked &
+        Contained &
+        Transparent &
+        Rotated &
+        NoRotatedLines
+    >
+>;
+
+export type Container = Expand<
+  Required<Size & Position> & Partial<Transparent & Masked & Flipped>
 >;
 
 export type Filter = Expand<
   Required<
     {
-      type: "blur" | "alpha" | "brightness" | "glow";
       amount: number;
-    } & Inclusive
+    } & Inclusive &
+      (
+        | {
+            type: "blur" | "alpha" | "brightness";
+          }
+        | {
+            type: "glow";
+            color?: PIXI.ColorSource;
+          }
+      )
   > &
     Partial<Tagged>
 >;
 
 export type Transitionables = {
+  container: Container;
   sprite: Sprite;
   graphic: Graphic;
   filter: Filter;
@@ -145,13 +191,7 @@ export type Transition<
       times: number[];
     }
   > &
-    Partial<
-      Tagged &
-        Eased & {
-          repeat?: boolean;
-          totalDuration?: number;
-        }
-    >
+    Partial<Tagged & Eased & Repeated>
 >;
 
 export type TransitionableProperty = {
@@ -160,12 +200,14 @@ export type TransitionableProperty = {
 
 export type GenericTransition = Omit<
   Transition<keyof Transitionables>,
-  "property"
+  "property" | "frames"
 > & {
   property: TransitionableProperty;
+  frames: unknown[];
 };
 
 export type PropertiesByRendererInput = {
+  containers: Container;
   sprites: Sprite;
   filters: Filter;
   graphics: Graphic;
@@ -179,9 +221,10 @@ export type RendererInput = {
   >;
 };
 
-export type AliasLookup = { Alias: Record<string, { assetPath: string }> };
+export type AliasLookup = { aliases: Record<string, string> };
 
 export type PixiByRendererInput = {
+  containers: PIXI.Container;
   sprites: PIXI.Sprite;
   filters: PIXI.Filter | GlowFilter;
   graphics: PIXI.Graphics;

@@ -1,6 +1,6 @@
 import easingsFunctions from "./easing";
 
-interface Lerpable {
+export interface Lerpable {
   [key: string]: number | number[] | Lerpable;
 }
 

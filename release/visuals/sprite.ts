@@ -1,9 +1,25 @@
 import type * as PIXI from "@pixi/webworker";
-import { isSprite, resolvePosition } from ".";
-import type { Scope } from "../runtime";
+import { isSprite, apply2DTransform } from ".";
+import type { Scope } from "../scope";
 import type { PixiByRendererInput, Sprite } from "..";
 import { type Parent, rootParent } from ".";
 import { draw as drawGraphic } from "./graphic";
+
+const applyTransform = (
+  sprite: PixiByRendererInput["sprites"],
+  { x, y, useParentRotation }: Pick<Sprite, "x" | "y" | "useParentRotation">,
+  parent: Parent
+) => {
+  useParentRotation ??= false;
+  const { width, height } = sprite;
+  apply2DTransform(sprite, x, y, width, height, parent, useParentRotation);
+};
+
+const getRatio = ({
+  texture: {
+    baseTexture: { width, height },
+  },
+}: PixiByRendererInput["sprites"]) => width / height;
 
 export const set = (
   sprite: PixiByRendererInput["sprites"],
@@ -20,18 +36,20 @@ export const set = (
   config ??= lookup.configBy.get(sprite)!;
 
   const { x, y, height, width, zIndex, rotation } = config!;
+  const ratio = getRatio(sprite);
+
   if (height && width) {
     sprite.height = parent.height * height;
     sprite.width = parent.width * width;
   } else if (height) {
     sprite.height = parent.height * height;
-    sprite.width = sprite.height * config?.ratio!;
+    sprite.width = sprite.height * ratio;
   } else if (width) {
     sprite.width = parent.width * width;
-    sprite.height = sprite.width / config?.ratio!;
+    sprite.height = sprite.width / ratio!;
   }
-  sprite.x = resolvePosition(x, "x", sprite, parent);
-  sprite.y = resolvePosition(y, "y", sprite, parent);
+
+  applyTransform(sprite, config, parent);
 
   // TODO: Should this be relative to parent?
   if (rotation !== undefined) sprite.rotation = rotation * 2 * Math.PI;
