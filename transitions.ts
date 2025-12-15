@@ -1,25 +1,29 @@
-import { RendererInput, Transitionables, type GenericTransition } from ".";
+import type { RendererInput, Transitionables, GenericTransition } from ".";
 import apply, { type ApplyPropertyTo } from "./apply";
-import type { Scope } from "./runtime";
+import type { Scope } from "./scope";
 import { lerp } from "./lerp";
-import { Pluralize, pluralize, setOrAppend } from "./utils";
-import { Lookup } from "./lookup";
+import { type Pluralize, pluralize, setOrAppend } from "./utils";
+import type { Lookup } from "./lookup";
 
 type WithCurrentFrame = { currentFrame: number };
+type WithTotalDuration = { totalDuration: number };
+type Initialized = GenericTransition & WithCurrentFrame & WithTotalDuration;
 
 const invalidFrame = -1;
 
-function withCurrentFrame(
+function initialize(
   transition: GenericTransition
-): asserts transition is GenericTransition & WithCurrentFrame {
+): asserts transition is Initialized {
   (transition as any as WithCurrentFrame).currentFrame ??= invalidFrame;
+  (transition as any as WithTotalDuration).totalDuration ??=
+    transition.times.at(-1)! - transition.times.at(0)!;
 }
 
 function setCurrentFrame(
   transition: GenericTransition,
   { elapsedTimeSeconds: timeSeconds }: Scope
-): asserts transition is GenericTransition & WithCurrentFrame {
-  withCurrentFrame(transition);
+): asserts transition is Initialized {
+  initialize(transition);
   const { times, currentFrame } = transition;
   if (currentFrame === invalidFrame || currentFrame === undefined)
     transition.currentFrame = timeSeconds < times[0] ? invalidFrame : 0;
@@ -67,10 +71,8 @@ const performTransition = <T extends keyof Transitionables>(
     transition.currentFrame === frames.length - 1 &&
     times[transition.currentFrame] < scope.elapsedTimeSeconds
   ) {
-    transition.totalDuration ??=
-      transition.times.at(-1)! - transition.times.at(0)!;
     transition.currentFrame = 0;
-    transition.times = times.map((time) => time + transition.totalDuration!);
+    transition.times = times.map((time) => time + transition.totalDuration);
   }
 
   try {
@@ -112,12 +114,13 @@ export const perform = (scope: Scope) => {
 };
 
 export const configure = (
-  { transitions }: Pick<RendererInput, "transitions">,
+  { transitions }: Partial<Pick<RendererInput, "transitions">>,
   { lookup }: Scope
 ) => {
-  for (const identifier in transitions) {
-    const config = transitions[identifier];
-    lookup.transitions.byIdentifier.set(identifier, config);
-    if (config.tag) setOrAppend(lookup.transitions.byTag, config.tag, config);
-  }
+  if (transitions)
+    for (const identifier in transitions) {
+      const config = transitions[identifier];
+      lookup.transitions.byIdentifier.set(identifier, config);
+      if (config.tag) setOrAppend(lookup.transitions.byTag, config.tag, config);
+    }
 };

@@ -1,7 +1,129 @@
 import * as PIXI from "@pixi/webworker";
-import { type Parent, point, resolvePosition, rootParent } from ".";
-import type { PixiByRendererInput, PropertiesByRendererInput } from "..";
-import type { Scope } from "../runtime";
+import { type Parent, point, apply2DTransform, rootParent } from ".";
+import type {
+  AnchoredPosition,
+  LinePoint,
+  PixiByRendererInput,
+  PropertiesByRendererInput,
+  RelativeLength,
+  RelativeRadius,
+  Shape,
+} from "..";
+import type { Scope } from "../scope";
+import { upper } from "../utils";
+
+const extractRadius = (x: RelativeRadius | RelativeRadius["radius"]) => {
+  if ("radius" in x) return extractRadius(x.radius);
+  else if ("width" in x) return { value: x.width, dimension: "width" } as const;
+  else if ("height" in x)
+    return { value: x.height, dimension: "height" } as const;
+  throw new Error("Invalid radius specification");
+};
+
+const resolveLength = (relative: RelativeLength, parent: Parent) =>
+  "width" in relative
+    ? parent.width * relative.width
+    : parent.height * relative.height;
+
+const linePositionToAnchored = (
+  position: LinePoint[keyof LinePoint]
+): AnchoredPosition => ({
+  value: position.value,
+  anchors: {
+    self: 0.5,
+    parent: position.parent,
+  },
+});
+
+const applyTransformToLinePoint = (
+  target: Record<"x" | "y", number>,
+  { x, y }: LinePoint,
+  parent: Parent,
+  useParentRotation: boolean
+) =>
+  apply2DTransform(
+    target,
+    linePositionToAnchored(x),
+    linePositionToAnchored(y),
+    0,
+    0,
+    parent,
+    useParentRotation
+  );
+
+const shape = (
+  graphic: PixiByRendererInput["graphics"],
+  config: Shape,
+  parent: Parent,
+  useParentRotation: boolean
+) => {
+  switch (config.kind) {
+    case "circle": {
+      const { x, y, color } = config;
+      const radius = resolveLength(config.radius, parent);
+      const width = 2 * radius;
+      const height = 2 * radius;
+      apply2DTransform(graphic, x, y, width, height, parent, useParentRotation);
+      graphic.beginFill(color);
+      graphic.drawCircle(0, 0, radius);
+      graphic.endFill();
+      break;
+    }
+    case "rectangle": {
+      const { x, y, color } = config;
+      const width = config.width * parent.width;
+      const height = config.height * parent.height;
+      apply2DTransform(graphic, x, y, width, height, parent, useParentRotation);
+      graphic.beginFill(color);
+      graphic.drawRect(-width / 2, -height / 2, width, height);
+      graphic.endFill();
+      break;
+    }
+    case "rounded rectangle": {
+      const { x, y, color } = config;
+      const radius = resolveLength(config.radius, parent);
+      const width = config.width * parent.width;
+      const height = config.height * parent.height;
+      apply2DTransform(graphic, x, y, width, height, parent, useParentRotation);
+      graphic.beginFill(color);
+      graphic.drawRoundedRect(-width / 2, -height / 2, width, height, radius);
+      graphic.endFill();
+      break;
+    }
+    case "line": {
+      const { thickness, points, color } = config;
+      const width = resolveLength(thickness, parent);
+      const cap = PIXI.LINE_CAP[upper(config.cap ?? "butt")];
+
+      graphic.lineStyle({ width, color, cap });
+
+      const firstPoint = points[0];
+      applyTransformToLinePoint(graphic, firstPoint, parent, useParentRotation);
+      graphic.moveTo(0, 0);
+
+      for (let i = 1; i < points.length; i++) {
+        const point = points[i];
+        const resolved = { x: 0, y: 0 };
+        applyTransformToLinePoint(resolved, point, parent, useParentRotation);
+        const x = resolved.x - graphic.x;
+        const y = resolved.y - graphic.y;
+        graphic.lineTo(x, y);
+        graphic.moveTo(x, y);
+      }
+      break;
+    }
+    case "ellipse": {
+      const { x, y, color } = config;
+      const width = config.width * parent.width;
+      const height = config.height * parent.height;
+      apply2DTransform(graphic, x, y, width, height, parent, useParentRotation);
+      graphic.beginFill(color);
+      graphic.drawEllipse(0, 0, width / 2, height / 2);
+      graphic.endFill();
+      break;
+    }
+  }
+};
 
 export const draw = (
   graphic: PixiByRendererInput["graphics"],
@@ -13,94 +135,16 @@ export const draw = (
     lookup: { graphics: lookup },
     parentByChild,
   } = scope;
+
   config ??= lookup.configBy.get(graphic)!;
   parent ??= parentByChild.get(graphic) ?? rootParent(scope);
 
   graphic.clear();
-  graphic.zIndex = config.zIndex ?? 0;
+  shape(graphic, config, parent, config.useParentRotation ?? false);
 
-  switch (config.kind) {
-    case "circle": {
-      const { x, y, radius, color } = config;
-      const size = {
-        width: radius * parent.width,
-        height: radius * parent.height,
-      };
-      const centerX = resolvePosition(x, "x", size, parent);
-      const centerY = resolvePosition(y, "y", size, parent);
-      graphic.beginFill(color);
-      graphic.drawCircle(centerX, centerY, config.radius * parent.height);
-      graphic.endFill();
-      return;
-    }
-    case "rectangle": {
-      const { color, x, y } = config;
-      const size = {
-        width: config.width * parent.width,
-        height: config.height * parent.height,
-      };
-      const topLeftX = resolvePosition(x, "x", size, parent) - size.width / 2;
-      const topLeftY = resolvePosition(y, "y", size, parent) - size.height / 2;
-      graphic.beginFill(color);
-      graphic.drawRect(topLeftX, topLeftY, size.width, size.height);
-      graphic.endFill();
-      return;
-    }
-    case "rounded rectangle": {
-      const { color, x, y, radius } = config;
-      const size = {
-        width: config.width * parent.width,
-        height: config.height * parent.height,
-      };
-      const topLeftX = resolvePosition(x, "x", size, parent) - size.width / 2;
-      const topLeftY = resolvePosition(y, "y", size, parent) - size.height / 2;
-      const longest = size.width > size.height ? size.width : size.height;
-      graphic.beginFill(color);
-      graphic.drawRoundedRect(
-        topLeftX,
-        topLeftY,
-        size.width,
-        size.height,
-        radius * longest
-      );
-      graphic.endFill();
-      return;
-    }
-    case "line": {
-      const { thickness, color, points } = config;
-      graphic.lineStyle({
-        width: thickness,
-        color,
-        cap: PIXI.LINE_CAP.ROUND,
-      });
-      graphic.moveTo(
-        resolvePosition(points[0].x, "x", point, parent),
-        resolvePosition(points[0].y, "y", point, parent)
-      );
-      for (const { x, y } of points) {
-        graphic.lineTo(
-          resolvePosition(x, "x", point, parent),
-          resolvePosition(y, "y", point, parent)
-        );
-        graphic.moveTo(
-          resolvePosition(x, "x", point, parent),
-          resolvePosition(y, "y", point, parent)
-        );
-      }
-      console.log("line", graphic);
-      return;
-    }
-    case "ellipse": {
-      const { x, y, width, height, color } = config;
-      const size = {
-        width: width * parent.width,
-        height: height * parent.height,
-      };
-      const centerX = resolvePosition(x, "x", size, parent);
-      const centerY = resolvePosition(y, "y", size, parent);
-      graphic.beginFill(color);
-      graphic.drawEllipse(centerX, centerY, size.width / 2, size.height / 2);
-      return;
-    }
-  }
+  graphic.zIndex = config.zIndex ?? 0;
+  if (config.mask) graphic.mask = lookup.byIdentifier.get(config.mask)!;
+  if (config.rotation !== undefined)
+    graphic.rotation = config.rotation * 2 * Math.PI;
+  if (config.alpha !== undefined) graphic.alpha = config.alpha;
 };

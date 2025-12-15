@@ -9,15 +9,17 @@ import type {
 import apply from "./apply";
 import { setOrAppend } from "./utils";
 
-const makeFilter = ({ type }: PropertiesByRendererInput["filters"]) =>
-  type === "blur"
+const makeFilter = (filter: PropertiesByRendererInput["filters"]) =>
+  filter.type === "blur"
     ? new PIXI.BlurFilter()
-    : type === "alpha"
+    : filter.type === "alpha"
     ? new PIXI.AlphaFilter()
-    : type === "brightness"
+    : filter.type === "brightness"
     ? new PIXI.ColorMatrixFilter()
-    : type === "glow"
-    ? new GlowFilter({ color: 0xffff00 })
+    : filter.type === "glow"
+    ? new GlowFilter({
+        color: new PIXI.Color(filter.color ?? 0xffff00).toNumber(),
+      })
     : null;
 
 type FilterHandler = (
@@ -80,7 +82,7 @@ const attachToVisualByTag: FilterHandler = (
 };
 
 export const configure = (
-  { filters }: Pick<RendererInput, "filters">,
+  { filters }: Partial<Pick<RendererInput, "filters">>,
   scope: Scope
 ) => {
   const handlers = [
@@ -90,11 +92,12 @@ export const configure = (
     attachToVisualByIdentifer,
     attachToVisualByTag,
   ];
-  for (const identifier in filters) {
-    const config = filters[identifier];
-    const filter =
-      scope.lookup.filters.byIdentifier.get(identifier) ?? makeFilter(config);
-    if (!filter) throw new Error(`Unknown filter type: ${config.type}`);
-    handlers.forEach((handler) => handler(identifier, filter, config, scope));
-  }
+  if (filters)
+    for (const identifier in filters) {
+      const config = filters[identifier];
+      const filter =
+        scope.lookup.filters.byIdentifier.get(identifier) ?? makeFilter(config);
+      if (!filter) throw new Error(`Unknown filter type: ${config.type}`);
+      handlers.forEach((handler) => handler(identifier, filter, config, scope));
+    }
 };

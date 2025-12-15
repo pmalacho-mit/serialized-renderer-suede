@@ -1,6 +1,6 @@
 import * as PIXI from "@pixi/webworker";
 import type { PixiByRendererInput, PropertiesByRendererInput } from "./";
-import type { Scope } from "./runtime";
+import type { Scope } from "./scope";
 import { set as setSprite } from "./visuals/sprite";
 import { draw as drawGraphic } from "./visuals/graphic";
 import { GlowFilter } from "pixi-filters";
@@ -37,5 +37,18 @@ export default {
     const config = scope.lookup.graphics.configBy.get(graphic)!;
     config[property] = value;
     drawGraphic(graphic, scope, config);
+  },
+  containers: (container, property, value, scope) => {
+    if (property === "alpha" && typeof value === "number")
+      container.alpha = value === undefined ? 1 : value;
+    else if (property === "mask" && typeof value === "string")
+      container.mask =
+        value === undefined
+          ? null
+          : scope.lookup.graphics.byIdentifier.get(value)!;
+    else if (property === "flipped" && typeof value === "boolean") {
+      container.pivot.x = scope.app.view.width;
+      container.scale.x = -1;
+    }
   },
 } satisfies { [k in keyof PixiByRendererInput]: ApplyPropertyTo<k> };
