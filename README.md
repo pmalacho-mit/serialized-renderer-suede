@@ -1,4 +1,4 @@
-# Svelte-serialized-renderer-suede
+# serialized-renderer-suede
 
 This repo is a [suede dependency](https://github.com/pmalacho-mit/suede). 
 
